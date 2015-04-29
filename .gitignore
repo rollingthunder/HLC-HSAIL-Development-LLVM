@@ -42,6 +42,8 @@ compile_commands.json
 #==============================================================================#
 # Directories to ignore (do not add trailing '/'s, they skip symlinks).
 #==============================================================================#
+# Build Directories
+build_*
 # External projects that are tracked independently.
 projects/*
 !projects/CMakeLists.txt
