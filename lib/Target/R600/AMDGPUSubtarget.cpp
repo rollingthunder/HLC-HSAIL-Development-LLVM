@@ -16,11 +16,11 @@
 #include "R600ISelLowering.h"
 #include "R600InstrInfo.h"
 #include "R600MachineScheduler.h"
-#include "SIInstrInfo.h"
 #include "SIISelLowering.h"
+#include "SIInstrInfo.h"
+#include "SIMachineFunctionInfo.h"
 #include "llvm/ADT/SmallString.h"
-
-#include "llvm/ADT/SmallString.h"
+#include "llvm/CodeGen/MachineScheduler.h"
 
 using namespace llvm;
 
@@ -80,6 +80,7 @@ AMDGPUSubtarget::AMDGPUSubtarget(StringRef TT, StringRef GPU, StringRef FS,
       FlatAddressSpace(false), EnableIRStructurizer(true),
       EnablePromoteAlloca(false), EnableIfCvt(true),
       EnableLoadStoreOpt(false), WavefrontSize(0), CFALUBug(false), LocalMemorySize(0),
+      EnableVGPRSpilling(false),
       DL(computeDataLayout(initializeSubtargetDependencies(GPU, FS))),
       FrameLowering(TargetFrameLowering::StackGrowsUp,
                     64 * 16, // Maximum stack alignment (long16)
@@ -113,5 +114,28 @@ unsigned AMDGPUSubtarget::getAmdKernelCodeChipID() const {
   switch(getGeneration()) {
   default: llvm_unreachable("ChipID unknown");
   case SEA_ISLANDS: return 12;
+  }
+}
+
+bool AMDGPUSubtarget::isVGPRSpillingEnabled(
+                                       const SIMachineFunctionInfo *MFI) const {
+  return MFI->getShaderType() == ShaderType::COMPUTE || EnableVGPRSpilling;
+}
+
+void AMDGPUSubtarget::overrideSchedPolicy(MachineSchedPolicy &Policy,
+                                          MachineInstr *begin,
+                                          MachineInstr *end,
+                                          unsigned NumRegionInstrs) const {
+  if (getGeneration() >= SOUTHERN_ISLANDS) {
+
+    // Track register pressure so the scheduler can try to decrease
+    // pressure once register usage is above the threshold defined by
+    // SIRegisterInfo::getRegPressureSetLimit()
+    Policy.ShouldTrackPressure = true;
+
+    // Enabling both top down and bottom up scheduling seems to give us less
+    // register spills than just using one of these approaches on its own.
+    Policy.OnlyTopDown = false;
+    Policy.OnlyBottomUp = false;
   }
 }

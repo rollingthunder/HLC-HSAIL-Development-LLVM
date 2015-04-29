@@ -6,9 +6,6 @@
 /* Exported configuration */
 #include "llvm/Config/llvm-config.h"
 
-/* Patch version of the LLVM API */
-#cmakedefine LLVM_VERSION_PATCH ${LLVM_VERSION_PATCH}
-
 /* Bug report URL. */
 #define BUG_REPORT_URL "${BUG_REPORT_URL}"
 
@@ -17,6 +14,9 @@
 
 /* Define to enable crash overrides */
 #cmakedefine ENABLE_CRASH_OVERRIDES
+
+/* Define to disable C++ atexit */
+#cmakedefine DISABLE_LLVM_DYLIB_ATEXIT
 
 /* Define if position independent code is enabled */
 #cmakedefine ENABLE_PIC

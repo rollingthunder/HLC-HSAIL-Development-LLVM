@@ -268,9 +268,8 @@ Instruction *InstCombiner::visitAllocaInst(AllocaInst &AI) {
     // is only subsequently read.
     SmallVector<Instruction *, 4> ToDelete;
     if (MemTransferInst *Copy = isOnlyCopiedFromConstantGlobal(&AI, ToDelete)) {
-      unsigned SourceAlign = getOrEnforceKnownAlignment(Copy->getSource(),
-                                                        AI.getAlignment(),
-                                                        DL, AT, &AI, DT);
+      unsigned SourceAlign = getOrEnforceKnownAlignment(
+          Copy->getSource(), AI.getAlignment(), DL, AC, &AI, DT);
       if (AI.getAlignment() <= SourceAlign) {
         DEBUG(dbgs() << "Found alloca equal to global: " << AI << '\n');
         DEBUG(dbgs() << "  memcpy = " << *Copy << '\n');
@@ -331,9 +330,15 @@ static LoadInst *combineLoadToNewType(InstCombiner &IC, LoadInst &LI, Type *NewT
     case LLVMContext::MD_noalias:
     case LLVMContext::MD_nontemporal:
     case LLVMContext::MD_mem_parallel_loop_access:
-    case LLVMContext::MD_nonnull:
       // All of these directly apply.
       NewLoad->setMetadata(ID, N);
+      break;
+
+    case LLVMContext::MD_nonnull:
+      // FIXME: We should translate this into range metadata for integer types
+      // and vice versa.
+      if (NewTy->isPointerTy())
+        NewLoad->setMetadata(ID, N);
       break;
 
     case LLVMContext::MD_range:
@@ -395,9 +400,8 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
 
   // Attempt to improve the alignment.
   if (DL) {
-    unsigned KnownAlign =
-      getOrEnforceKnownAlignment(Op, DL->getPrefTypeAlignment(LI.getType()),
-                                 DL, AT, &LI, DT);
+    unsigned KnownAlign = getOrEnforceKnownAlignment(
+        Op, DL->getPrefTypeAlignment(LI.getType()), DL, AC, &LI, DT);
     unsigned LoadAlign = LI.getAlignment();
     unsigned EffectiveLoadAlign = LoadAlign != 0 ? LoadAlign :
       DL->getABITypeAlignment(LI.getType());
@@ -474,18 +478,18 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
       }
 
       // load (select (cond, null, P)) -> load P
-      if (Constant *C = dyn_cast<Constant>(SI->getOperand(1)))
-        if (C->isNullValue()) {
-          LI.setOperand(0, SI->getOperand(2));
-          return &LI;
-        }
+      if (isa<ConstantPointerNull>(SI->getOperand(1)) && 
+          LI.getPointerAddressSpace() == 0) {
+        LI.setOperand(0, SI->getOperand(2));
+        return &LI;
+      }
 
       // load (select (cond, P, null)) -> load P
-      if (Constant *C = dyn_cast<Constant>(SI->getOperand(2)))
-        if (C->isNullValue()) {
-          LI.setOperand(0, SI->getOperand(1));
-          return &LI;
-        }
+      if (isa<ConstantPointerNull>(SI->getOperand(2)) &&
+          LI.getPointerAddressSpace() == 0) {
+        LI.setOperand(0, SI->getOperand(1));
+        return &LI;
+      }
     }
   }
   return nullptr;
@@ -550,13 +554,14 @@ static bool combineStoreToValueType(InstCombiner &IC, StoreInst &SI) {
       case LLVMContext::MD_noalias:
       case LLVMContext::MD_nontemporal:
       case LLVMContext::MD_mem_parallel_loop_access:
-      case LLVMContext::MD_nonnull:
         // All of these directly apply.
         NewStore->setMetadata(ID, N);
         break;
 
       case LLVMContext::MD_invariant_load:
+      case LLVMContext::MD_nonnull:
       case LLVMContext::MD_range:
+        // These don't apply for stores.
         break;
       }
     }
@@ -607,9 +612,8 @@ Instruction *InstCombiner::visitStoreInst(StoreInst &SI) {
 
   // Attempt to improve the alignment.
   if (DL) {
-    unsigned KnownAlign =
-      getOrEnforceKnownAlignment(Ptr, DL->getPrefTypeAlignment(Val->getType()),
-                                 DL, AT, &SI, DT);
+    unsigned KnownAlign = getOrEnforceKnownAlignment(
+        Ptr, DL->getPrefTypeAlignment(Val->getType()), DL, AC, &SI, DT);
     unsigned StoreAlign = SI.getAlignment();
     unsigned EffectiveStoreAlign = StoreAlign != 0 ? StoreAlign :
       DL->getABITypeAlignment(Val->getType());

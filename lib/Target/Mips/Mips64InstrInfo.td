@@ -290,7 +290,8 @@ class ExtsCins<string opstr, SDPatternOperator Op = null_frag>:
 class SetCC64_R<string opstr, PatFrag cond_op> :
   InstSE<(outs GPR64Opnd:$rd), (ins GPR64Opnd:$rs, GPR64Opnd:$rt),
          !strconcat(opstr, "\t$rd, $rs, $rt"),
-         [(set GPR64Opnd:$rd, (cond_op GPR64Opnd:$rs, GPR64Opnd:$rt))],
+         [(set GPR64Opnd:$rd, (zext (cond_op GPR64Opnd:$rs,
+                                             GPR64Opnd:$rt)))],
          II_SEQ_SNE, FrmR, opstr> {
   let TwoOperandAliasConstraint = "$rd = $rs";
 }
@@ -298,7 +299,8 @@ class SetCC64_R<string opstr, PatFrag cond_op> :
 class SetCC64_I<string opstr, PatFrag cond_op>:
   InstSE<(outs GPR64Opnd:$rt), (ins GPR64Opnd:$rs, simm10_64:$imm10),
          !strconcat(opstr, "\t$rt, $rs, $imm10"),
-         [(set GPR64Opnd:$rt, (cond_op GPR64Opnd:$rs, immSExt10_64:$imm10))],
+         [(set GPR64Opnd:$rt, (zext (cond_op GPR64Opnd:$rs,
+                                             immSExt10_64:$imm10)))],
          II_SEQI_SNEI, FrmI, opstr> {
   let TwoOperandAliasConstraint = "$rt = $rs";
 }
@@ -426,6 +428,14 @@ def : MipsPat<(trunc (assertzext GPR64:$src)),
 def : MipsPat<(i32 (trunc GPR64:$src)),
               (SLL (EXTRACT_SUBREG GPR64:$src, sub_32), 0)>;
 
+// Bypass trunc nodes for bitwise ops.
+def : MipsPat<(i32 (trunc (and GPR64:$lhs, GPR64:$rhs))),
+              (EXTRACT_SUBREG (AND64 GPR64:$lhs, GPR64:$rhs), sub_32)>;
+def : MipsPat<(i32 (trunc (or GPR64:$lhs, GPR64:$rhs))),
+              (EXTRACT_SUBREG (OR64 GPR64:$lhs, GPR64:$rhs), sub_32)>;
+def : MipsPat<(i32 (trunc (xor GPR64:$lhs, GPR64:$rhs))),
+              (EXTRACT_SUBREG (XOR64 GPR64:$lhs, GPR64:$rhs), sub_32)>;
+
 // 32-to-64-bit extension
 def : MipsPat<(i64 (anyext GPR32:$src)), (SLL64_32 GPR32:$src)>;
 def : MipsPat<(i64 (zext GPR32:$src)), (DSRL (DSLL64_32 GPR32:$src), 32)>;
@@ -437,6 +447,16 @@ def : MipsPat<(i64 (sext_inreg GPR64:$src, i32)),
 
 // bswap MipsPattern
 def : MipsPat<(bswap GPR64:$rt), (DSHD (DSBH GPR64:$rt))>;
+
+// Carry pattern
+def : MipsPat<(subc GPR64:$lhs, GPR64:$rhs),
+              (DSUBu GPR64:$lhs, GPR64:$rhs)>;
+let AdditionalPredicates = [NotDSP] in {
+  def : MipsPat<(addc GPR64:$lhs, GPR64:$rhs),
+                (DADDu GPR64:$lhs, GPR64:$rhs)>;
+  def : MipsPat<(addc GPR64:$lhs, immSExt16:$imm),
+                (DADDiu GPR64:$lhs, imm:$imm)>;
+}
 
 //===----------------------------------------------------------------------===//
 // Instruction aliases

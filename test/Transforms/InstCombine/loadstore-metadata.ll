@@ -1,5 +1,7 @@
 ; RUN: opt -instcombine -S < %s | FileCheck %s
 
+target datalayout = "e-m:e-p:64:64:64-i64:64-f80:128-n8:16:32:64-S128"
+
 define i32 @test_load_cast_combine_tbaa(float* %ptr) {
 ; Ensure (cast (load (...))) -> (load (cast (...))) preserves TBAA.
 ; CHECK-LABEL: @test_load_cast_combine_tbaa(
@@ -78,9 +80,9 @@ exit:
   ret void
 }
 
-!0 = metadata !{ metadata !1, metadata !1, i64 0 }
-!1 = metadata !{ metadata !1 }
-!2 = metadata !{ metadata !2, metadata !1 }
-!3 = metadata !{ }
-!4 = metadata !{ i32 1 }
-!5 = metadata !{ i32 0, i32 42 }
+!0 = !{ !1, !1, i64 0 }
+!1 = !{ !1 }
+!2 = !{ !2, !1 }
+!3 = !{ }
+!4 = !{ i32 1 }
+!5 = !{ i32 0, i32 42 }
