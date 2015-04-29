@@ -42,6 +42,8 @@ autoconf/autom4te.cache
 #==============================================================================#
 # Directories to ignore (do not add trailing '/'s, they skip symlinks).
 #==============================================================================#
+# Build Directories
+build_*
 # External projects that are tracked independently.
 projects/*/
 # Clang, which is tracked independently.
