@@ -1713,9 +1713,9 @@ $(ObjDir)/%GenDFAPacketizer.inc.tmp : %.td $(ObjDir)/.dir $(LLVM_TBLGEN)
 	$(Echo) "Building $(<F) DFA packetizer tables with tblgen"
 	$(Verb) $(LLVMTableGen) -gen-dfa-packetizer -o $(call SYSPATH, $@) $<
 
-$(ObjDir)/%GenBrigWriter.inc.tmp : %.td $(ObjDir)/.dir $(LLVM_TBLGEN)
-	$(Echo) "Building $(<F) HSAIL BRIG writer with tblgen"
-	$(Verb) $(LLVMTableGen) -gen-brig-writer -o $(call SYSPATH, $@) $<
+$(ObjDir)/%GenMnemonicMapper.inc.tmp : %.td $(ObjDir)/.dir $(LLVM_TBLGEN)
+	$(Echo) "Building $(<F) HSAIL Mnemonic mapper with tblgen"
+	$(Verb) $(LLVMTableGen) -gen-mnemonic-mapper -o $(call SYSPATH, $@) $<
 
 # Dump all the records to <target>.td.expanded.  This is useful for debugging.
 $(TARGET:%=%.td.expanded): \
