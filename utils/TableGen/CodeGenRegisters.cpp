@@ -1784,7 +1784,7 @@ void CodeGenRegBank::computeRegUnitLaneMasks() {
       unsigned LaneMask = SubRegIndex->LaneMask;
       // Distribute LaneMask to Register Units touched.
       for (const auto &SUI : SubRegister->getRegUnits()) {
-        bool Found = false;
+        bool Found = false; (void)Found;
         for (size_t u = 0, ue = RegUnits.size(); u < ue; ++u) {
           if (SUI == RegUnits[u]) {
             RegUnitLaneMasks[u] |= LaneMask;
