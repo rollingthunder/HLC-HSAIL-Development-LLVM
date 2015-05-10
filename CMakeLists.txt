@@ -297,12 +297,14 @@ if( WIN32 AND NOT CYGWIN )
 endif()
 
 # Define options to control the inclusion and default build behavior for
-# components which may not strictly be necessary (tools, examples, and tests).
+# components which may not strictly be necessary (tools, bindings, examples, and tests).
 #
 # This is primarily to support building smaller or faster project files.
 option(LLVM_INCLUDE_TOOLS "Generate build targets for the LLVM tools." ON)
 option(LLVM_BUILD_TOOLS
   "Build the LLVM tools. If OFF, just generate build targets." ON)
+
+option(LLVM_BUILD_BINDINGS "Build the various LLVM Bindings" ON)
 
 option(LLVM_INCLUDE_UTILS "Generate build targets for the LLVM utils." ON)
 
@@ -562,11 +564,13 @@ if(LLVM_INCLUDE_TESTS)
   add_subdirectory(utils/unittest)
 endif()
 
-foreach( binding ${LLVM_BINDINGS_LIST} )
-  if( EXISTS "${LLVM_MAIN_SRC_DIR}/bindings/${binding}/CMakeLists.txt" )
-    add_subdirectory(bindings/${binding})
-  endif()
-endforeach()
+if(LLVM_BUILD_BINDINGS)
+	foreach( binding ${LLVM_BINDINGS_LIST} )
+	  if( EXISTS "${LLVM_MAIN_SRC_DIR}/bindings/${binding}/CMakeLists.txt" )
+		add_subdirectory(bindings/${binding})
+	  endif()
+	endforeach()
+endif()
 
 add_subdirectory(projects)
 
