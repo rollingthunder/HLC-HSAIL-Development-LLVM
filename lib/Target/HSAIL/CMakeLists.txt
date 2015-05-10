@@ -1,4 +1,3 @@
-
 include(CMakeDependentOption)
 
 set(LLVM_TARGET_DEFINITIONS HSAIL.td)
