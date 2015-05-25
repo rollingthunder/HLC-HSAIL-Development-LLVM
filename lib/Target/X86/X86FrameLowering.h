@@ -27,9 +27,11 @@ public:
   explicit X86FrameLowering(StackDirection D, unsigned StackAl, int LAO)
     : TargetFrameLowering(StackGrowsDown, StackAl, LAO) {}
 
-  static void getStackProbeFunction(const X86Subtarget &STI,
-                                    unsigned &CallOp,
-                                    const char *&Symbol);
+  /// Emit a call to the target's stack probe function. This is required for all
+  /// large stack allocations on Windows. The caller is required to materialize
+  /// the number of bytes to probe in RAX/EAX.
+  static void emitStackProbeCall(MachineFunction &MF, MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator MBBI, DebugLoc DL);
 
   void emitCalleeSavedFrameMoves(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MBBI,
@@ -76,6 +78,16 @@ public:
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                  MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI) const override;
+
+private:
+  /// convertArgMovsToPushes - This method tries to convert a call sequence
+  /// that uses sub and mov instructions to put the argument onto the stack
+  /// into a series of pushes.
+  /// Returns true if the transformation succeeded, false if not.
+  bool convertArgMovsToPushes(MachineFunction &MF, 
+                              MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator I, 
+                              uint64_t Amount) const;
 };
 
 } // End llvm namespace

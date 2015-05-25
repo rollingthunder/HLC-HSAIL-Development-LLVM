@@ -40,12 +40,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/Analysis.h"
-#include "llvm/CodeGen/FastISel.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -497,7 +497,7 @@ bool FastISel::selectGetElementPtr(const User *I) {
        OI != E; ++OI) {
     const Value *Idx = *OI;
     if (auto *StTy = dyn_cast<StructType>(Ty)) {
-      unsigned Field = cast<ConstantInt>(Idx)->getZExtValue();
+      uint64_t Field = cast<ConstantInt>(Idx)->getZExtValue();
       if (Field) {
         // N = N + Offset
         TotalOffs += DL.getStructLayout(StTy)->getElementOffset(Field);
@@ -518,8 +518,8 @@ bool FastISel::selectGetElementPtr(const User *I) {
         if (CI->isZero())
           continue;
         // N = N + Offset
-        TotalOffs +=
-            DL.getTypeAllocSize(Ty) * cast<ConstantInt>(CI)->getSExtValue();
+        uint64_t IdxN = CI->getValue().sextOrTrunc(64).getSExtValue();
+        TotalOffs += DL.getTypeAllocSize(Ty) * IdxN;
         if (TotalOffs >= MaxOffs) {
           N = fastEmit_ri_(VT, ISD::ADD, N, NIsKill, TotalOffs, VT);
           if (!N) // Unhandled operand. Halt "fast" selection and bail.
@@ -728,6 +728,7 @@ bool FastISel::selectPatchpoint(const CallInst *I) {
   // For AnyRegCC the arguments are lowered later on manually.
   unsigned NumCallArgs = IsAnyRegCC ? 0 : NumArgs;
   CallLoweringInfo CLI;
+  CLI.setIsPatchPoint();
   if (!lowerCallOperands(I, NumMetaOpers, NumCallArgs, Callee, IsAnyRegCC, CLI))
     return false;
 

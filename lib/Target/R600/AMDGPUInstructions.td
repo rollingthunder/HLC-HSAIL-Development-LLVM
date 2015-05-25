@@ -73,6 +73,11 @@ def COND_OEQ : PatLeaf <
   [{return N->get() == ISD::SETOEQ || N->get() == ISD::SETEQ;}]
 >;
 
+def COND_ONE : PatLeaf <
+  (cond),
+  [{return N->get() == ISD::SETONE || N->get() == ISD::SETNE;}]
+>;
+
 def COND_OGT : PatLeaf <
   (cond),
   [{return N->get() == ISD::SETOGT || N->get() == ISD::SETGT;}]
@@ -93,22 +98,27 @@ def COND_OLE : PatLeaf <
   [{return N->get() == ISD::SETOLE || N->get() == ISD::SETLE;}]
 >;
 
-def COND_UNE : PatLeaf <
-  (cond),
-  [{return N->get() == ISD::SETUNE || N->get() == ISD::SETNE;}]
->;
 
 def COND_O : PatLeaf <(cond), [{return N->get() == ISD::SETO;}]>;
 def COND_UO : PatLeaf <(cond), [{return N->get() == ISD::SETUO;}]>;
 
 //===----------------------------------------------------------------------===//
-// PatLeafs for unsigned comparisons
+// PatLeafs for unsigned / unordered comparisons
 //===----------------------------------------------------------------------===//
 
+def COND_UEQ : PatLeaf <(cond), [{return N->get() == ISD::SETUEQ;}]>;
+def COND_UNE : PatLeaf <(cond), [{return N->get() == ISD::SETUNE;}]>;
 def COND_UGT : PatLeaf <(cond), [{return N->get() == ISD::SETUGT;}]>;
 def COND_UGE : PatLeaf <(cond), [{return N->get() == ISD::SETUGE;}]>;
 def COND_ULT : PatLeaf <(cond), [{return N->get() == ISD::SETULT;}]>;
 def COND_ULE : PatLeaf <(cond), [{return N->get() == ISD::SETULE;}]>;
+
+// XXX - For some reason R600 version is preferring to use unordered
+// for setne?
+def COND_UNE_NE : PatLeaf <
+  (cond),
+  [{return N->get() == ISD::SETUNE || N->get() == ISD::SETNE;}]
+>;
 
 //===----------------------------------------------------------------------===//
 // PatLeafs for signed comparisons
@@ -154,10 +164,6 @@ class PrivateStore <SDPatternOperator op> : PrivateMemOp <
   (ops node:$value, node:$ptr), (op node:$value, node:$ptr)
 >;
 
-def extloadi8_private : PrivateLoad <extloadi8>;
-def sextloadi8_private : PrivateLoad <sextloadi8>;
-def extloadi16_private : PrivateLoad <extloadi16>;
-def sextloadi16_private : PrivateLoad <sextloadi16>;
 def load_private : PrivateLoad <load>;
 
 def truncstorei8_private : PrivateStore <truncstorei8>;
@@ -221,6 +227,9 @@ def sextloadi8_local : PatFrag<(ops node:$ptr), (sextloadi8 node:$ptr), [{
     return isLocalLoad(dyn_cast<LoadSDNode>(N));
 }]>;
 
+def extloadi8_private : PrivateLoad <az_extloadi8>;
+def sextloadi8_private : PrivateLoad <sextloadi8>;
+
 def az_extloadi16 : PatFrag<(ops node:$ptr), (az_extload node:$ptr), [{
   return cast<LoadSDNode>(N)->getMemoryVT() == MVT::i16;
 }]>;
@@ -256,6 +265,9 @@ def az_extloadi16_local : PatFrag<(ops node:$ptr), (az_extloadi16 node:$ptr), [{
 def sextloadi16_local : PatFrag<(ops node:$ptr), (sextloadi16 node:$ptr), [{
     return isLocalLoad(dyn_cast<LoadSDNode>(N));
 }]>;
+
+def extloadi16_private : PrivateLoad <az_extloadi16>;
+def sextloadi16_private : PrivateLoad <sextloadi16>;
 
 def az_extloadi32 : PatFrag<(ops node:$ptr), (az_extload node:$ptr), [{
   return cast<LoadSDNode>(N)->getMemoryVT() == MVT::i32;
@@ -639,17 +651,10 @@ class RcpPat<Instruction RcpInst, ValueType vt> : Pat <
   (RcpInst $src)
 >;
 
-multiclass RsqPat<Instruction RsqInst, ValueType vt> {
-  def : Pat <
-    (fdiv FP_ONE, (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-
-  def : Pat <
-    (AMDGPUrcp (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-}
+class RsqPat<Instruction RsqInst, ValueType vt> : Pat <
+  (AMDGPUrcp (fsqrt vt:$src)),
+  (RsqInst $src)
+>;
 
 include "R600Instructions.td"
 include "R700Instructions.td"

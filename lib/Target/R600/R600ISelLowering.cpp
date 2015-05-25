@@ -122,17 +122,19 @@ R600TargetLowering::R600TargetLowering(TargetMachine &TM) :
 
   // EXTLOAD should be the same as ZEXTLOAD. It is legal for some address
   // spaces, so it is custom lowered to handle those where it isn't.
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Custom);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Custom);
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i8, Custom);
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i16, Custom);
 
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1, Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i8, Custom);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, Custom);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i8, Custom);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i16, Custom);
 
-  setLoadExtAction(ISD::EXTLOAD, MVT::i1, Promote);
-  setLoadExtAction(ISD::EXTLOAD, MVT::i8, Custom);
-  setLoadExtAction(ISD::EXTLOAD, MVT::i16, Custom);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i8, Custom);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i16, Custom);
+  }
 
   setOperationAction(ISD::STORE, MVT::i8, Custom);
   setOperationAction(ISD::STORE, MVT::i32, Custom);
@@ -836,6 +838,10 @@ SDValue R600TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const 
     case Intrinsic::AMDGPU_rsq:
       // XXX - I'm assuming SI's RSQ_LEGACY matches R600's behavior.
       return DAG.getNode(AMDGPUISD::RSQ_LEGACY, DL, VT, Op.getOperand(1));
+
+    case AMDGPUIntrinsic::AMDGPU_fract:
+    case AMDGPUIntrinsic::AMDIL_fraction: // Legacy name.
+      return DAG.getNode(AMDGPUISD::FRACT, DL, VT, Op.getOperand(1));
     }
     // break out of case ISD::INTRINSIC_WO_CHAIN in switch(Op.getOpcode())
     break;
@@ -1117,6 +1123,13 @@ SDValue R600TargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const 
   SDValue False = Op.getOperand(3);
   SDValue CC = Op.getOperand(4);
   SDValue Temp;
+
+  if (VT == MVT::f32) {
+    DAGCombinerInfo DCI(DAG, AfterLegalizeVectorOps, true, nullptr);
+    SDValue MinMax = CombineFMinMaxLegacy(DL, VT, LHS, RHS, True, False, CC, DCI);
+    if (MinMax)
+      return MinMax;
+  }
 
   // LHS and RHS are guaranteed to be the same value type
   EVT CompareVT = LHS.getValueType();
@@ -1685,7 +1698,7 @@ SDValue R600TargetLowering::LowerFormalArguments(
     // XXX - I think PartOffset should give you this, but it seems to give the
     // size of the register which isn't useful.
 
-    unsigned ValBase = ArgLocs[In.OrigArgIndex].getLocMemOffset();
+    unsigned ValBase = ArgLocs[In.getOrigArgIndex()].getLocMemOffset();
     unsigned PartOffset = VA.getLocMemOffset();
     unsigned Offset = 36 + VA.getLocMemOffset();
 

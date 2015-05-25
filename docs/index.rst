@@ -1,11 +1,6 @@
 Overview
 ========
 
-.. warning::
-
-   If you are using a released version of LLVM, see `the download page
-   <http://llvm.org/releases/>`_ to find your documentation.
-
 The LLVM compiler infrastructure supports a wide range of projects, from
 industrial strength compilers to specialized JIT applications to small
 research projects.
@@ -199,6 +194,8 @@ For developers of applications which use LLVM as a library.
   (`classes <http://llvm.org/doxygen/inherits.html>`_)
   (`tarball <http://llvm.org/doxygen/doxygen.tar.gz>`_)
 
+`Documentation for Go bindings <http://godoc.org/llvm.org/llvm/bindings/go/llvm>`_
+
 `ViewVC Repository Browser <http://llvm.org/viewvc/>`_
    ..
 
@@ -241,6 +238,7 @@ For API clients and LLVM developers.
    BigEndianNEON
    CoverageMappingFormat
    Statepoints
+   MergeFunctions
 
 :doc:`WritingAnLLVMPass`
    Information on how to write LLVM transformations and analyses.
@@ -336,6 +334,9 @@ For API clients and LLVM developers.
 :doc:`Statepoints`
   This describes a set of experimental extensions for garbage
   collection support.
+
+:doc:`MergeFunctions`
+  Describes functions merging optimization.
 
 Development Process Documentation
 =================================

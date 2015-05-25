@@ -92,6 +92,16 @@ def FeatureFlatAddressSpace : SubtargetFeature<"flat-address-space",
         "true",
         "Support flat address space">;
 
+def FeatureVGPRSpilling : SubtargetFeature<"vgpr-spilling",
+        "EnableVGPRSpilling",
+        "true",
+        "Enable spilling of VGPRs to scratch memory">;
+
+def FeatureSGPRInitBug : SubtargetFeature<"sgpr-init-bug",
+        "SGPRInitBug",
+        "true",
+        "VI SGPR initilization bug requiring a fixed SGPR allocation size">;
+
 class SubtargetFeatureFetchLimit <string Value> :
                           SubtargetFeature <"fetch"#Value,
         "TexVTXClauseSize",
@@ -147,6 +157,11 @@ def FeatureSouthernIslands : SubtargetFeatureGeneration<"SOUTHERN_ISLANDS",
 def FeatureSeaIslands : SubtargetFeatureGeneration<"SEA_ISLANDS",
         [Feature64BitPtr, FeatureFP64, FeatureLocalMemorySize65536,
          FeatureWavefrontSize64, FeatureFlatAddressSpace]>;
+
+def FeatureVolcanicIslands : SubtargetFeatureGeneration<"VOLCANIC_ISLANDS",
+        [Feature64BitPtr, FeatureFP64, FeatureLocalMemorySize65536,
+         FeatureWavefrontSize64, FeatureFlatAddressSpace]>;
+
 //===----------------------------------------------------------------------===//
 
 def AMDGPUInstrInfo : InstrInfo {

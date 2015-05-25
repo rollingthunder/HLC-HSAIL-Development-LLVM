@@ -13,9 +13,9 @@
 
 #include "llvm/MC/MCWinCOFFObjectWriter.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCAssembler.h"
@@ -710,17 +710,22 @@ void WinCOFFObjectWriter::RecordRelocation(const MCAssembler &Asm,
     CrossSection = &Symbol.getSection() != &B->getSection();
 
     // Offset of the symbol in the section
-    int64_t a = Layout.getSymbolOffset(&B_SD);
+    int64_t OffsetOfB = Layout.getSymbolOffset(&B_SD);
 
-    // Offset of the relocation in the section
-    int64_t b = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
-
-    FixedValue = b - a;
     // In the case where we have SymbA and SymB, we just need to store the delta
     // between the two symbols.  Update FixedValue to account for the delta, and
     // skip recording the relocation.
-    if (!CrossSection)
+    if (!CrossSection) {
+      int64_t OffsetOfA = Layout.getSymbolOffset(&A_SD);
+      FixedValue = (OffsetOfA - OffsetOfB) + Target.getConstant();
       return;
+    }
+
+    // Offset of the relocation in the section
+    int64_t OffsetOfRelocation =
+        Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
+
+    FixedValue = OffsetOfRelocation - OffsetOfB;
   } else {
     FixedValue = Target.getConstant();
   }

@@ -64,8 +64,16 @@ EnableAArch64ExtrGeneration("aarch64-extr-generation", cl::Hidden,
 
 static cl::opt<bool>
 EnableAArch64SlrGeneration("aarch64-shift-insert-generation", cl::Hidden,
-                         cl::desc("Allow AArch64 SLI/SRI formation"),
-                         cl::init(false));
+                           cl::desc("Allow AArch64 SLI/SRI formation"),
+                           cl::init(false));
+
+// FIXME: The necessary dtprel relocations don't seem to be supported
+// well in the GNU bfd and gold linkers at the moment. Therefore, by
+// default, for now, fall back to GeneralDynamic code generation.
+cl::opt<bool> EnableAArch64ELFLocalDynamicTLSGeneration(
+    "aarch64-elf-ldtls-generation", cl::Hidden,
+    cl::desc("Allow AArch64 Local Dynamic TLS code generation"),
+    cl::init(false));
 
 
 AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
@@ -387,13 +395,24 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
     setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
   }
 
+  // Make floating-point constants legal for the large code model, so they don't
+  // become loads from the constant pool.
+  if (Subtarget->isTargetMachO() && TM.getCodeModel() == CodeModel::Large) {
+    setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
+    setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
+  }
+
   // AArch64 does not have floating-point extending loads, i1 sign-extending
   // load, floating-point truncating stores, or v2i32->v2i16 truncating store.
-  setLoadExtAction(ISD::EXTLOAD, MVT::f16, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f64, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f80, Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Expand);
+  for (MVT VT : MVT::fp_valuetypes()) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f16, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f32, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f64, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f80, Expand);
+  }
+  for (MVT VT : MVT::integer_valuetypes())
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Expand);
+
   setTruncStoreAction(MVT::f32, MVT::f16, Expand);
   setTruncStoreAction(MVT::f64, MVT::f32, Expand);
   setTruncStoreAction(MVT::f64, MVT::f16, Expand);
@@ -532,26 +551,22 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
     setTruncStoreAction(MVT::v2i32, MVT::v2i16, Expand);
     // Likewise, narrowing and extending vector loads/stores aren't handled
     // directly.
-    for (unsigned VT = (unsigned)MVT::FIRST_VECTOR_VALUETYPE;
-         VT <= (unsigned)MVT::LAST_VECTOR_VALUETYPE; ++VT) {
+    for (MVT VT : MVT::vector_valuetypes()) {
+      setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
 
-      setOperationAction(ISD::SIGN_EXTEND_INREG, (MVT::SimpleValueType)VT,
-                         Expand);
+      setOperationAction(ISD::MULHS, VT, Expand);
+      setOperationAction(ISD::SMUL_LOHI, VT, Expand);
+      setOperationAction(ISD::MULHU, VT, Expand);
+      setOperationAction(ISD::UMUL_LOHI, VT, Expand);
 
-      setOperationAction(ISD::MULHS, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::SMUL_LOHI, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::MULHU, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::UMUL_LOHI, (MVT::SimpleValueType)VT, Expand);
+      setOperationAction(ISD::BSWAP, VT, Expand);
 
-      setOperationAction(ISD::BSWAP, (MVT::SimpleValueType)VT, Expand);
-
-      for (unsigned InnerVT = (unsigned)MVT::FIRST_VECTOR_VALUETYPE;
-           InnerVT <= (unsigned)MVT::LAST_VECTOR_VALUETYPE; ++InnerVT)
-        setTruncStoreAction((MVT::SimpleValueType)VT,
-                            (MVT::SimpleValueType)InnerVT, Expand);
-      setLoadExtAction(ISD::SEXTLOAD, (MVT::SimpleValueType)VT, Expand);
-      setLoadExtAction(ISD::ZEXTLOAD, (MVT::SimpleValueType)VT, Expand);
-      setLoadExtAction(ISD::EXTLOAD, (MVT::SimpleValueType)VT, Expand);
+      for (MVT InnerVT : MVT::vector_valuetypes()) {
+        setTruncStoreAction(VT, InnerVT, Expand);
+        setLoadExtAction(ISD::SEXTLOAD, VT, InnerVT, Expand);
+        setLoadExtAction(ISD::ZEXTLOAD, VT, InnerVT, Expand);
+        setLoadExtAction(ISD::EXTLOAD, VT, InnerVT, Expand);
+      }
     }
 
     // AArch64 has implementations of a lot of rounding-like FP operations.
@@ -616,7 +631,8 @@ void AArch64TargetLowering::addTypeForNEON(EVT VT, EVT PromotedBitwiseVT) {
   setOperationAction(ISD::SELECT, VT.getSimpleVT(), Expand);
   setOperationAction(ISD::SELECT_CC, VT.getSimpleVT(), Expand);
   setOperationAction(ISD::VSELECT, VT.getSimpleVT(), Expand);
-  setLoadExtAction(ISD::EXTLOAD, VT.getSimpleVT(), Expand);
+  for (MVT InnerVT : MVT::all_valuetypes())
+    setLoadExtAction(ISD::EXTLOAD, InnerVT, VT.getSimpleVT(), Expand);
 
   // CNT supports only B element sizes.
   if (VT != MVT::v8i8 && VT != MVT::v16i8)
@@ -752,7 +768,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::CSNEG:             return "AArch64ISD::CSNEG";
   case AArch64ISD::CSINC:             return "AArch64ISD::CSINC";
   case AArch64ISD::THREAD_POINTER:    return "AArch64ISD::THREAD_POINTER";
-  case AArch64ISD::TLSDESC_CALL:      return "AArch64ISD::TLSDESC_CALL";
+  case AArch64ISD::TLSDESC_CALLSEQ:   return "AArch64ISD::TLSDESC_CALLSEQ";
   case AArch64ISD::ADC:               return "AArch64ISD::ADC";
   case AArch64ISD::SBC:               return "AArch64ISD::SBC";
   case AArch64ISD::ADDS:              return "AArch64ISD::ADDS";
@@ -1982,6 +1998,8 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
     llvm_unreachable("Unsupported calling convention.");
   case CallingConv::WebKit_JS:
     return CC_AArch64_WebKit_JS;
+  case CallingConv::GHC:
+    return CC_AArch64_GHC;
   case CallingConv::C:
   case CallingConv::Fast:
     if (!Subtarget->isTargetDarwin())
@@ -2013,18 +2031,19 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
   unsigned CurArgIdx = 0;
   for (unsigned i = 0; i != NumArgs; ++i) {
     MVT ValVT = Ins[i].VT;
-    std::advance(CurOrigArg, Ins[i].OrigArgIndex - CurArgIdx);
-    CurArgIdx = Ins[i].OrigArgIndex;
+    if (Ins[i].isOrigArg()) {
+      std::advance(CurOrigArg, Ins[i].getOrigArgIndex() - CurArgIdx);
+      CurArgIdx = Ins[i].getOrigArgIndex();
 
-    // Get type of the original argument.
-    EVT ActualVT = getValueType(CurOrigArg->getType(), /*AllowUnknown*/ true);
-    MVT ActualMVT = ActualVT.isSimple() ? ActualVT.getSimpleVT() : MVT::Other;
-    // If ActualMVT is i1/i8/i16, we should set LocVT to i8/i8/i16.
-    if (ActualMVT == MVT::i1 || ActualMVT == MVT::i8)
-      ValVT = MVT::i8;
-    else if (ActualMVT == MVT::i16)
-      ValVT = MVT::i16;
-
+      // Get type of the original argument.
+      EVT ActualVT = getValueType(CurOrigArg->getType(), /*AllowUnknown*/ true);
+      MVT ActualMVT = ActualVT.isSimple() ? ActualVT.getSimpleVT() : MVT::Other;
+      // If ActualMVT is i1/i8/i16, we should set LocVT to i8/i8/i16.
+      if (ActualMVT == MVT::i1 || ActualMVT == MVT::i8)
+        ValVT = MVT::i8;
+      else if (ActualMVT == MVT::i16)
+        ValVT = MVT::i16;
+    }
     CCAssignFn *AssignFn = CCAssignFnForCall(CallConv, /*IsVarArg=*/false);
     bool Res =
         AssignFn(i, ValVT, ValVT, CCValAssign::Full, Ins[i].Flags, CCInfo);
@@ -2351,7 +2370,9 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
   // cannot rely on the linker replacing the tail call with a return.
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    if (GV->hasExternalWeakLinkage())
+    const Triple TT(getTargetMachine().getTargetTriple());
+    if (GV->hasExternalWeakLinkage() &&
+        (!TT.isOSWindows() || TT.isOSBinFormatELF() || TT.isOSBinFormatMachO()))
       return false;
   }
 
@@ -3037,61 +3058,34 @@ AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
 /// When accessing thread-local variables under either the general-dynamic or
 /// local-dynamic system, we make a "TLS-descriptor" call. The variable will
 /// have a descriptor, accessible via a PC-relative ADRP, and whose first entry
-/// is a function pointer to carry out the resolution. This function takes the
-/// address of the descriptor in X0 and returns the TPIDR_EL0 offset in X0. All
-/// other registers (except LR, NZCV) are preserved.
+/// is a function pointer to carry out the resolution.
 ///
-/// Thus, the ideal call sequence on AArch64 is:
+/// The sequence is:
+///    adrp  x0, :tlsdesc:var
+///    ldr   x1, [x0, #:tlsdesc_lo12:var]
+///    add   x0, x0, #:tlsdesc_lo12:var
+///    .tlsdesccall var
+///    blr   x1
+///    (TPIDR_EL0 offset now in x0)
 ///
-///     adrp x0, :tlsdesc:thread_var
-///     ldr x8, [x0, :tlsdesc_lo12:thread_var]
-///     add x0, x0, :tlsdesc_lo12:thread_var
-///     .tlsdesccall thread_var
-///     blr x8
-///     (TPIDR_EL0 offset now in x0).
-///
-/// The ".tlsdesccall" directive instructs the assembler to insert a particular
-/// relocation to help the linker relax this sequence if it turns out to be too
-/// conservative.
-///
-/// FIXME: we currently produce an extra, duplicated, ADRP instruction, but this
-/// is harmless.
-SDValue AArch64TargetLowering::LowerELFTLSDescCall(SDValue SymAddr,
-                                                   SDValue DescAddr, SDLoc DL,
-                                                   SelectionDAG &DAG) const {
+///  The above sequence must be produced unscheduled, to enable the linker to
+///  optimize/relax this sequence.
+///  Therefore, a pseudo-instruction (TLSDESC_CALLSEQ) is used to represent the
+///  above sequence, and expanded really late in the compilation flow, to ensure
+///  the sequence is produced as per above.
+SDValue AArch64TargetLowering::LowerELFTLSDescCallSeq(SDValue SymAddr, SDLoc DL,
+                                                      SelectionDAG &DAG) const {
   EVT PtrVT = getPointerTy();
 
-  // The function we need to call is simply the first entry in the GOT for this
-  // descriptor, load it in preparation.
-  SDValue Func = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, SymAddr);
-
-  // TLS calls preserve all registers except those that absolutely must be
-  // trashed: X0 (it takes an argument), LR (it's a call) and NZCV (let's not be
-  // silly).
-  const TargetRegisterInfo *TRI =
-      getTargetMachine().getSubtargetImpl()->getRegisterInfo();
-  const AArch64RegisterInfo *ARI =
-      static_cast<const AArch64RegisterInfo *>(TRI);
-  const uint32_t *Mask = ARI->getTLSCallPreservedMask();
-
-  // The function takes only one argument: the address of the descriptor itself
-  // in X0.
-  SDValue Glue, Chain;
-  Chain = DAG.getCopyToReg(DAG.getEntryNode(), DL, AArch64::X0, DescAddr, Glue);
-  Glue = Chain.getValue(1);
-
-  // We're now ready to populate the argument list, as with a normal call:
-  SmallVector<SDValue, 6> Ops;
-  Ops.push_back(Chain);
-  Ops.push_back(Func);
-  Ops.push_back(SymAddr);
-  Ops.push_back(DAG.getRegister(AArch64::X0, PtrVT));
-  Ops.push_back(DAG.getRegisterMask(Mask));
-  Ops.push_back(Glue);
-
+  SDValue Chain = DAG.getEntryNode();
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
-  Chain = DAG.getNode(AArch64ISD::TLSDESC_CALL, DL, NodeTys, Ops);
-  Glue = Chain.getValue(1);
+
+  SmallVector<SDValue, 2> Ops;
+  Ops.push_back(Chain);
+  Ops.push_back(SymAddr);
+
+  Chain = DAG.getNode(AArch64ISD::TLSDESC_CALLSEQ, DL, NodeTys, Ops);
+  SDValue Glue = Chain.getValue(1);
 
   return DAG.getCopyFromReg(Chain, DL, AArch64::X0, PtrVT, Glue);
 }
@@ -3102,9 +3096,18 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
   assert(Subtarget->isTargetELF() && "This function expects an ELF target");
   assert(getTargetMachine().getCodeModel() == CodeModel::Small &&
          "ELF TLS only supported in small memory model");
+  // Different choices can be made for the maximum size of the TLS area for a
+  // module. For the small address model, the default TLS size is 16MiB and the
+  // maximum TLS size is 4GiB.
+  // FIXME: add -mtls-size command line option and make it control the 16MiB
+  // vs. 4GiB code sequence generation.
   const GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
 
   TLSModel::Model Model = getTargetMachine().getTLSModel(GA->getGlobal());
+  if (!EnableAArch64ELFLocalDynamicTLSGeneration) {
+    if (Model == TLSModel::LocalDynamic)
+      Model = TLSModel::GeneralDynamic;
+  }
 
   SDValue TPOff;
   EVT PtrVT = getPointerTy();
@@ -3115,17 +3118,20 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
 
   if (Model == TLSModel::LocalExec) {
     SDValue HiVar = DAG.getTargetGlobalAddress(
-        GV, DL, PtrVT, 0, AArch64II::MO_TLS | AArch64II::MO_G1);
+        GV, DL, PtrVT, 0, AArch64II::MO_TLS | AArch64II::MO_HI12);
     SDValue LoVar = DAG.getTargetGlobalAddress(
         GV, DL, PtrVT, 0,
-        AArch64II::MO_TLS | AArch64II::MO_G0 | AArch64II::MO_NC);
+        AArch64II::MO_TLS | AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
 
-    TPOff = SDValue(DAG.getMachineNode(AArch64::MOVZXi, DL, PtrVT, HiVar,
-                                       DAG.getTargetConstant(16, MVT::i32)),
-                    0);
-    TPOff = SDValue(DAG.getMachineNode(AArch64::MOVKXi, DL, PtrVT, TPOff, LoVar,
-                                       DAG.getTargetConstant(0, MVT::i32)),
-                    0);
+    SDValue TPWithOff_lo =
+        SDValue(DAG.getMachineNode(AArch64::ADDXri, DL, PtrVT, ThreadBase,
+                                   HiVar, DAG.getTargetConstant(0, MVT::i32)),
+                0);
+    SDValue TPWithOff =
+        SDValue(DAG.getMachineNode(AArch64::ADDXri, DL, PtrVT, TPWithOff_lo,
+                                   LoVar, DAG.getTargetConstant(0, MVT::i32)),
+                0);
+    return TPWithOff;
   } else if (Model == TLSModel::InitialExec) {
     TPOff = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_TLS);
     TPOff = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, TPOff);
@@ -3140,19 +3146,6 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
         DAG.getMachineFunction().getInfo<AArch64FunctionInfo>();
     MFI->incNumLocalDynamicTLSAccesses();
 
-    // Accesses used in this sequence go via the TLS descriptor which lives in
-    // the GOT. Prepare an address we can use to handle this.
-    SDValue HiDesc = DAG.getTargetExternalSymbol(
-        "_TLS_MODULE_BASE_", PtrVT, AArch64II::MO_TLS | AArch64II::MO_PAGE);
-    SDValue LoDesc = DAG.getTargetExternalSymbol(
-        "_TLS_MODULE_BASE_", PtrVT,
-        AArch64II::MO_TLS | AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
-
-    // First argument to the descriptor call is the address of the descriptor
-    // itself.
-    SDValue DescAddr = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, HiDesc);
-    DescAddr = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, DescAddr, LoDesc);
-
     // The call needs a relocation too for linker relaxation. It doesn't make
     // sense to call it MO_PAGE or MO_PAGEOFF though so we need another copy of
     // the address.
@@ -3161,40 +3154,23 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
 
     // Now we can calculate the offset from TPIDR_EL0 to this module's
     // thread-local area.
-    TPOff = LowerELFTLSDescCall(SymAddr, DescAddr, DL, DAG);
+    TPOff = LowerELFTLSDescCallSeq(SymAddr, DL, DAG);
 
     // Now use :dtprel_whatever: operations to calculate this variable's offset
     // in its thread-storage area.
     SDValue HiVar = DAG.getTargetGlobalAddress(
-        GV, DL, MVT::i64, 0, AArch64II::MO_TLS | AArch64II::MO_G1);
+        GV, DL, MVT::i64, 0, AArch64II::MO_TLS | AArch64II::MO_HI12);
     SDValue LoVar = DAG.getTargetGlobalAddress(
         GV, DL, MVT::i64, 0,
-        AArch64II::MO_TLS | AArch64II::MO_G0 | AArch64II::MO_NC);
-
-    SDValue DTPOff =
-        SDValue(DAG.getMachineNode(AArch64::MOVZXi, DL, PtrVT, HiVar,
-                                   DAG.getTargetConstant(16, MVT::i32)),
-                0);
-    DTPOff =
-        SDValue(DAG.getMachineNode(AArch64::MOVKXi, DL, PtrVT, DTPOff, LoVar,
-                                   DAG.getTargetConstant(0, MVT::i32)),
-                0);
-
-    TPOff = DAG.getNode(ISD::ADD, DL, PtrVT, TPOff, DTPOff);
-  } else if (Model == TLSModel::GeneralDynamic) {
-    // Accesses used in this sequence go via the TLS descriptor which lives in
-    // the GOT. Prepare an address we can use to handle this.
-    SDValue HiDesc = DAG.getTargetGlobalAddress(
-        GV, DL, PtrVT, 0, AArch64II::MO_TLS | AArch64II::MO_PAGE);
-    SDValue LoDesc = DAG.getTargetGlobalAddress(
-        GV, DL, PtrVT, 0,
         AArch64II::MO_TLS | AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
 
-    // First argument to the descriptor call is the address of the descriptor
-    // itself.
-    SDValue DescAddr = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, HiDesc);
-    DescAddr = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, DescAddr, LoDesc);
-
+    TPOff = SDValue(DAG.getMachineNode(AArch64::ADDXri, DL, PtrVT, TPOff, HiVar,
+                                       DAG.getTargetConstant(0, MVT::i32)),
+                    0);
+    TPOff = SDValue(DAG.getMachineNode(AArch64::ADDXri, DL, PtrVT, TPOff, LoVar,
+                                       DAG.getTargetConstant(0, MVT::i32)),
+                    0);
+  } else if (Model == TLSModel::GeneralDynamic) {
     // The call needs a relocation too for linker relaxation. It doesn't make
     // sense to call it MO_PAGE or MO_PAGEOFF though so we need another copy of
     // the address.
@@ -3202,7 +3178,7 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
         DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_TLS);
 
     // Finally we can make a call to calculate the offset from tpidr_el0.
-    TPOff = LowerELFTLSDescCall(SymAddr, DescAddr, DL, DAG);
+    TPOff = LowerELFTLSDescCallSeq(SymAddr, DL, DAG);
   } else
     llvm_unreachable("Unsupported ELF TLS access model");
 
@@ -4618,19 +4594,21 @@ SDValue AArch64TargetLowering::ReconstructShuffle(SDValue Op,
       // The extraction can just take the second half
       Src.ShuffleVec =
           DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT, Src.ShuffleVec,
-                      DAG.getIntPtrConstant(NumSrcElts));
+                      DAG.getConstant(NumSrcElts, MVT::i64));
       Src.WindowBase = -NumSrcElts;
     } else if (Src.MaxElt < NumSrcElts) {
       // The extraction can just take the first half
-      Src.ShuffleVec = DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT,
-                                   Src.ShuffleVec, DAG.getIntPtrConstant(0));
+      Src.ShuffleVec =
+          DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT, Src.ShuffleVec,
+                      DAG.getConstant(0, MVT::i64));
     } else {
       // An actual VEXT is needed
-      SDValue VEXTSrc1 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT,
-                                     Src.ShuffleVec, DAG.getIntPtrConstant(0));
+      SDValue VEXTSrc1 =
+          DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT, Src.ShuffleVec,
+                      DAG.getConstant(0, MVT::i64));
       SDValue VEXTSrc2 =
           DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT, Src.ShuffleVec,
-                      DAG.getIntPtrConstant(NumSrcElts));
+                      DAG.getConstant(NumSrcElts, MVT::i64));
       unsigned Imm = Src.MinElt * getExtFactor(VEXTSrc1);
 
       Src.ShuffleVec = DAG.getNode(AArch64ISD::EXT, dl, DestVT, VEXTSrc1,
@@ -6273,6 +6251,8 @@ static SDValue EmitVectorComparison(SDValue LHS, SDValue RHS,
                                     AArch64CC::CondCode CC, bool NoNans, EVT VT,
                                     SDLoc dl, SelectionDAG &DAG) {
   EVT SrcVT = LHS.getValueType();
+  assert(VT.getSizeInBits() == SrcVT.getSizeInBits() &&
+         "function only supposed to emit natural comparisons");
 
   BuildVectorSDNode *BVN = dyn_cast<BuildVectorSDNode>(RHS.getNode());
   APInt CnstBits(VT.getSizeInBits(), 0);
@@ -6367,13 +6347,15 @@ SDValue AArch64TargetLowering::LowerVSETCC(SDValue Op,
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
   SDValue LHS = Op.getOperand(0);
   SDValue RHS = Op.getOperand(1);
+  EVT CmpVT = LHS.getValueType().changeVectorElementTypeToInteger();
   SDLoc dl(Op);
 
   if (LHS.getValueType().getVectorElementType().isInteger()) {
     assert(LHS.getValueType() == RHS.getValueType());
     AArch64CC::CondCode AArch64CC = changeIntCCToAArch64CC(CC);
-    return EmitVectorComparison(LHS, RHS, AArch64CC, false, Op.getValueType(),
-                                dl, DAG);
+    SDValue Cmp =
+        EmitVectorComparison(LHS, RHS, AArch64CC, false, CmpVT, dl, DAG);
+    return DAG.getSExtOrTrunc(Cmp, dl, Op.getValueType());
   }
 
   assert(LHS.getValueType().getVectorElementType() == MVT::f32 ||
@@ -6387,18 +6369,20 @@ SDValue AArch64TargetLowering::LowerVSETCC(SDValue Op,
 
   bool NoNaNs = getTargetMachine().Options.NoNaNsFPMath;
   SDValue Cmp =
-      EmitVectorComparison(LHS, RHS, CC1, NoNaNs, Op.getValueType(), dl, DAG);
+      EmitVectorComparison(LHS, RHS, CC1, NoNaNs, CmpVT, dl, DAG);
   if (!Cmp.getNode())
     return SDValue();
 
   if (CC2 != AArch64CC::AL) {
     SDValue Cmp2 =
-        EmitVectorComparison(LHS, RHS, CC2, NoNaNs, Op.getValueType(), dl, DAG);
+        EmitVectorComparison(LHS, RHS, CC2, NoNaNs, CmpVT, dl, DAG);
     if (!Cmp2.getNode())
       return SDValue();
 
-    Cmp = DAG.getNode(ISD::OR, dl, Cmp.getValueType(), Cmp, Cmp2);
+    Cmp = DAG.getNode(ISD::OR, dl, CmpVT, Cmp, Cmp2);
   }
+
+  Cmp = DAG.getSExtOrTrunc(Cmp, dl, Op.getValueType());
 
   if (ShouldInvert)
     return Cmp = DAG.getNOT(dl, Cmp, Cmp.getValueType());
@@ -7760,9 +7744,9 @@ static SDValue performExtendCombine(SDNode *N,
   EVT InNVT = EVT::getVectorVT(*DAG.getContext(), SrcVT.getVectorElementType(),
                                LoVT.getVectorNumElements());
   Lo = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, InNVT, Src,
-                   DAG.getIntPtrConstant(0));
+                   DAG.getConstant(0, MVT::i64));
   Hi = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, InNVT, Src,
-                   DAG.getIntPtrConstant(InNVT.getVectorNumElements()));
+                   DAG.getConstant(InNVT.getVectorNumElements(), MVT::i64));
   Lo = DAG.getNode(N->getOpcode(), DL, LoVT, Lo);
   Hi = DAG.getNode(N->getOpcode(), DL, HiVT, Hi);
 
@@ -7884,9 +7868,9 @@ static SDValue performSTORECombine(SDNode *N,
   EVT HalfVT =
       EVT::getVectorVT(*DAG.getContext(), VT.getVectorElementType(), NumElts);
   SDValue SubVector0 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, HalfVT, StVal,
-                                   DAG.getIntPtrConstant(0));
+                                   DAG.getConstant(0, MVT::i64));
   SDValue SubVector1 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, HalfVT, StVal,
-                                   DAG.getIntPtrConstant(NumElts));
+                                   DAG.getConstant(NumElts, MVT::i64));
   SDValue BasePtr = S->getBasePtr();
   SDValue NewST1 =
       DAG.getStore(S->getChain(), DL, SubVector0, BasePtr, S->getPointerInfo(),

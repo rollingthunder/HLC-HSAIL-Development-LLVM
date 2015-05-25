@@ -698,7 +698,7 @@ def SGE : R600_2OP <
 
 def SNE : R600_2OP <
   0xB, "SETNE",
-  [(set f32:$dst, (selectcc f32:$src0, f32:$src1, FP_ONE, FP_ZERO, COND_UNE))]
+  [(set f32:$dst, (selectcc f32:$src0, f32:$src1, FP_ONE, FP_ZERO, COND_UNE_NE))]
 >;
 
 def SETE_DX10 : R600_2OP <
@@ -716,9 +716,10 @@ def SETGE_DX10 : R600_2OP <
   [(set i32:$dst, (selectcc f32:$src0, f32:$src1, -1, 0, COND_OGE))]
 >;
 
+// FIXME: This should probably be COND_ONE
 def SETNE_DX10 : R600_2OP <
   0xF, "SETNE_DX10",
-  [(set i32:$dst, (selectcc f32:$src0, f32:$src1, -1, 0, COND_UNE))]
+  [(set i32:$dst, (selectcc f32:$src0, f32:$src1, -1, 0, COND_UNE_NE))]
 >;
 
 def FRACT : R600_1OP_Helper <0x10, "FRACT", AMDGPUfract>;
@@ -1192,7 +1193,7 @@ let Predicates = [isR600] in {
   def TGSI_LIT_Z_r600 : TGSI_LIT_Z_Common<MUL_LIT_r600, LOG_CLAMPED_r600, EXP_IEEE_r600>;
 
   def : Pat<(fsqrt f32:$src), (MUL $src, (RECIPSQRT_CLAMPED_r600 $src))>;
-  defm : RsqPat<RECIPSQRT_IEEE_r600, f32>;
+  def : RsqPat<RECIPSQRT_IEEE_r600, f32>;
 
   def : FROUNDPat <CNDGE_r600, CNDGT_r600>;
 
