@@ -51,15 +51,19 @@ static TargetLoweringObjectFile *createTLOF(const Triple &TT) {
 static StringRef computeDataLayout(const Triple &T) {
   if (T.getArch() == Triple::hsail64) {
     return "e-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:64:64-p5:32:32"
-           "-p6:32:32-p7:64:64-p8:32:32-p9:64:64-i64:64"
-           "-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256"
-           "-v512:512-v1024:1024-v2048:2048"
+           "-p6:32:32-p7:64:64-p8:32:32-p9:64:64-i1:8:8-i8:8:8"
+           "-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-f80:32:32"
+           "-v16:16:16-v24:32:32-v32:32:32-v48:64:64-v64:64:64"
+           "-v96:128:128-v128:128:128-v192:256:256-v256:256:256"
+           "-v512:512:512-v1024:1024:1024-v2048:2048:2048"
            "-n32:64";
   }
 
-  return "e-p:32:32-i64:64"
-         "-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256"
-         "-v512:512-v1024:1024-v2048:2048"
+  return "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16"
+         "-i32:32:32-i64:64:64-f32:32:32-f64:64:64-f80:32:32"
+         "-v16:16:16-v24:32:32-v32:32:32-v48:64:64-v64:64:64"
+         "-v96:128:128-v128:128:128-v192:256:256-v256:256:256"
+         "-v512:512:512-v1024:1024:1024-v2048:2048:2048"
          "-n32:64";
 }
 
@@ -67,22 +71,23 @@ static StringRef computeDataLayout(const Triple &T) {
 // triple is not fully specified. e.g. on a OS X host, there is no other way to
 // disable printing .macosx_version_min at the start of the module.
 LLVM_READONLY
-static Triple getTripleNoOS(Triple TT) {
+static Triple getTripleNoOS(StringRef Str) {
+  Triple TT(Str);
   if (TT.getOS() != Triple::UnknownOS)
     TT.setOS(Triple::UnknownOS);
 
   return TT;
 }
 
-HSAILTargetMachine::HSAILTargetMachine(const Target &T, const Triple &TT,
+HSAILTargetMachine::HSAILTargetMachine(const Target &T, StringRef TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
                                        Reloc::Model RM, CodeModel::Model CM,
                                        CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, computeDataLayout(getTripleNoOS(TT)),
-                      getTripleNoOS(TT), CPU, FS, Options, RM, CM, OL),
-    Subtarget(getTripleNoOS(TT), CPU, FS, *this), IntrinsicInfo(this),
-    TLOF(createTLOF(getTripleNoOS(TT))) {
+                      getTripleNoOS(TT).str(), CPU, FS, Options, RM, CM, OL),
+      Subtarget(TT, CPU, FS, *this), IntrinsicInfo(this),
+      TLOF(createTLOF(Triple(getTargetTriple()))) {
   initAsmInfo();
 
 #if HSAIL_USE_LIBHSAIL
@@ -96,8 +101,8 @@ HSAILTargetMachine::HSAILTargetMachine(const Target &T, const Triple &TT,
 
 bool HSAILTargetMachine::addPassesToEmitFile(
     PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FT,
-    bool DisableVerify, AnalysisID StartBefore, AnalysisID StartAfter,
-    AnalysisID StopAfter, MachineFunctionInitializer *MFInitializer) {
+    bool DisableVerify, AnalysisID StartAfter, AnalysisID StopAfter,
+    MachineFunctionInitializer *MFInitializer) {
   HSAILFileType = FT; // FIXME: Remove this.
 
   if (!UseStandardAsmPrinter) {
@@ -155,44 +160,49 @@ void HSAILPassConfig::addPostRegAlloc() { }
 //===----------------------------------------------------------------------===//
 // HSAIL_32Machine functions
 //===----------------------------------------------------------------------===//
-HSAIL_32TargetMachine::HSAIL_32TargetMachine(const Target &T, const Triple &TT,
+HSAIL_32TargetMachine::HSAIL_32TargetMachine(const Target &T, StringRef TT,
                                              StringRef CPU, StringRef FS,
                                              const TargetOptions &Options,
                                              Reloc::Model RM,
                                              CodeModel::Model CM,
                                              CodeGenOpt::Level OL)
-    : HSAILTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL) {
+    : HSAILTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL), TSInfo(*this) {
+  Triple TheTriple(TT);
+
   // Check for mismatch in target triple settings and data layout. Note the
   // target
   // triple comes from the module (unless overridden on command line). It's just
   // a
   // warning, but users should know if they're specifying --march=hsail-64 on a
   // 32-bit module or --march=hsail on a 64-bit module.
-  if (TT.getArch() == Triple::hsail64) {
-    errs() << "warning: target triple '" << TT.str()
-           << "' does not match target 'hsail', expecting hsail-pc-amdopencl.\n";
+  if (TheTriple.getArch() == Triple::hsail64) {
+    errs()
+        << "warning: target triple '" << TT
+        << "' does not match target 'hsail', expecting hsail-pc-amdopencl.\n";
   }
 }
 
 //===----------------------------------------------------------------------===//
 // HSAIL_64Machine functions
 //===----------------------------------------------------------------------===//
-HSAIL_64TargetMachine::HSAIL_64TargetMachine(const Target &T, const Triple &TT,
+HSAIL_64TargetMachine::HSAIL_64TargetMachine(const Target &T, StringRef TT,
                                              StringRef CPU, StringRef FS,
                                              const TargetOptions &Options,
                                              Reloc::Model RM,
                                              CodeModel::Model CM,
                                              CodeGenOpt::Level OL)
-  : HSAILTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL) {
+    : HSAILTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL), TSInfo(*this) {
+  Triple TheTriple(TT);
+
   // Check for mismatch in target triple settings and data layout. Note the
   // target
   // triple comes from the module (unless overridden on command line). It's just
   // a
   // warning, but users should know if they're specifying --march=hsail-64 on a
   // 32-bit module.
-  if (TT.getArch() == Triple::hsail) {
-    errs() << "warning: target triple '" << TT.str()
-           << "' does not match target 'hsail64', "
-              "expecting hsail64pc-amdopencl.\n";
+  if (TheTriple.getArch() == Triple::hsail) {
+    errs() << "warning: target triple '" << TT << "' does not match target "
+                                                  "'hsail-64', expecting "
+                                                  "hsail64-pc-amdopencl.\n";
   }
 }

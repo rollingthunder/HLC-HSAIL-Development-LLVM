@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_HSAIL_HSAILTARGETMACHINE_H
-#define LLVM_LIB_TARGET_HSAIL_HSAILTARGETMACHINE_H
+#ifndef _HSAIL_TARGET_MACHINE_H_
+#define _HSAIL_TARGET_MACHINE_H_
 
 #include "HSAILIntrinsicInfo.h"
 #include "HSAILSubtarget.h"
@@ -31,11 +31,16 @@ private:
   TargetLoweringObjectFile *TLOF;
 
 public:
+  class HSAILSelectionDAGInfo : public TargetSelectionDAGInfo {
+  public:
+    explicit HSAILSelectionDAGInfo(const HSAILTargetMachine &TM)
+      : TargetSelectionDAGInfo(TM.getDataLayout()) {}
+  };
+
 public:
-  HSAILTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
-                     StringRef FS, const TargetOptions &
-                     Options, Reloc::Model RM, CodeModel::Model CM,
-                     CodeGenOpt::Level OL);
+  HSAILTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,
+                     const TargetOptions &Options, Reloc::Model RM,
+                     CodeModel::Model CM, CodeGenOpt::Level OL);
 
   const HSAILIntrinsicInfo *getIntrinsicInfo() const override {
     return &IntrinsicInfo;
@@ -59,15 +64,16 @@ public:
   bool addPassesToEmitFile(
     PassManagerBase &PM, raw_pwrite_stream &Out,
     CodeGenFileType FT, bool DisableVerify = true,
-    AnalysisID StartBefore = nullptr,
     AnalysisID StartAfter = nullptr,
     AnalysisID StopAfter = nullptr,
     MachineFunctionInitializer *MFInitializer = nullptr) override;
 };
 
 class HSAIL_32TargetMachine : public HSAILTargetMachine {
+  HSAILSelectionDAGInfo TSInfo;
+
 public:
-  HSAIL_32TargetMachine(const Target &T, const Triple &TT, StringRef CPU,
+  HSAIL_32TargetMachine(const Target &T, StringRef TT, StringRef CPU,
                         StringRef FS, const TargetOptions &Options,
                         Reloc::Model RM, CodeModel::Model CM,
                         CodeGenOpt::Level OL);
@@ -76,8 +82,10 @@ public:
 };
 
 class HSAIL_64TargetMachine : public HSAILTargetMachine {
+  HSAILSelectionDAGInfo TSInfo;
+
 public:
-  HSAIL_64TargetMachine(const Target &T, const Triple &TT, StringRef CPU,
+  HSAIL_64TargetMachine(const Target &T, StringRef TT, StringRef CPU,
                         StringRef FS, const TargetOptions &Options,
                         Reloc::Model RM, CodeModel::Model CM,
                         CodeGenOpt::Level OL);
@@ -97,5 +105,4 @@ public:
   void addPostRegAlloc() override;
 };
 } // End llvm namespace
-
 #endif
