@@ -170,6 +170,7 @@ set(LLVM_ALL_TARGETS
   ARM
   CppBackend
   Hexagon
+  HSAIL
   Mips
   MSP430
   NVPTX
