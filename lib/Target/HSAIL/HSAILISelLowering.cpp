@@ -233,6 +233,11 @@ HSAILTargetLowering::HSAILTargetLowering(HSAILTargetMachine &TM,
   setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Custom);
   setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Custom);
 
+  // Translate Trap intrinsics to hsail instructions
+  setOperationAction(ISD::TRAP, MVT::Other, Custom);
+  setOperationAction(ISD::DEBUGTRAP, MVT::Other, Custom);
+
+
   setTargetDAGCombine(ISD::INTRINSIC_WO_CHAIN);
 
   setHasMultipleConditionRegisters(true);
@@ -958,6 +963,8 @@ SDValue HSAILTargetLowering::LowerOperation(SDValue Op,
     LOWER(STORE);
     LOWER(ATOMIC_LOAD);
     LOWER(ATOMIC_STORE);
+    LOWER(DEBUGTRAP);
+    LOWER(TRAP);
     break;
   default:
     Op.getNode()->dump();
@@ -1891,6 +1898,26 @@ SDValue HSAILTargetLowering::LowerATOMIC_STORE(SDValue Op,
                      MemoryScope, DAG);
 }
 
+SDValue HSAILTargetLowering::LowerTRAP(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  HSAILMachineFunctionInfo *FuncInfo = MF.getInfo<HSAILMachineFunctionInfo>();
+  HSAILParamManager &PM = FuncInfo->getParamManager();
+  const Function *F = MF.getFunction();
+  const FunctionType *funcType = F->getFunctionType();
+
+  Type *type = funcType->getReturnType();
+  if (!type->isVoidTy()) {
+    llvm_unreachable("Lowering TRAP to RET is only supported in void returning functions.");
+  }
+
+  auto dl = SDLoc(Op);
+
+  return DAG.getNode(HSAILISD::RET, dl, MVT::Other);
+}
+
+SDValue HSAILTargetLowering::LowerDEBUGTRAP(SDValue Op, SelectionDAG &DAG) const {
+    return LowerTRAP(Op, DAG);
+}
 //===--------------------------------------------------------------------===//
 bool HSAILTargetLowering::isLegalAddressingMode(const AddrMode &AM,
                                                 Type *Ty,

@@ -159,6 +159,8 @@ public:
   SDValue LowerATOMIC_LOAD(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerATOMIC_STORE(SDValue Op, SelectionDAG &DAG) const;
 
+  SDValue LowerTRAP(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerDEBUGTRAP(SDValue Op, SelectionDAG &DAG) const;
   //===--------------------------------------------------------------------===//
   // Instruction Emitting Hooks
   //

@@ -53,6 +53,13 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1, hasCtrlDep = 1,
 def : InstBasic_0Op_NoRet_Pat<RET, HSAILret>;
 
 ////////////////////////////////////////////////////////////////////////////////
+// trap
+
+let isTerminator = 1, isReturn = 1, hasSideEffects = 1 in {
+  def DEBUGTRAP : HSAILInstBasic_1Op<"debugtrap", BrigOpcode.DEBUGTRAP, Inst_Void_U32>;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // branch (unconditional and conditional)
 
 
@@ -64,6 +71,7 @@ let isBranch = 1, isTerminator = 1, hasCtrlDep = 1 in {
   def CBR : HSAILInstBr_2Op_NoRet<"cbr", BrigOpcode.CBR>;
 
   // TODO: can sbr be used to support brind?
+
 }
 
 def : Pat<
