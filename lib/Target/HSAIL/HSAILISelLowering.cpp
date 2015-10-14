@@ -963,7 +963,6 @@ SDValue HSAILTargetLowering::LowerOperation(SDValue Op,
     LOWER(STORE);
     LOWER(ATOMIC_LOAD);
     LOWER(ATOMIC_STORE);
-    LOWER(DEBUGTRAP);
     LOWER(TRAP);
     break;
   default:
@@ -1912,7 +1911,7 @@ SDValue HSAILTargetLowering::LowerTRAP(SDValue Op, SelectionDAG &DAG) const {
 
   auto dl = SDLoc(Op);
 
-  return DAG.getNode(HSAILISD::RET, dl, MVT::Other);
+  return DAG.getNode(ISD::DEBUGTRAP, dl, MVT::Other);
 }
 
 SDValue HSAILTargetLowering::LowerDEBUGTRAP(SDValue Op, SelectionDAG &DAG) const {
