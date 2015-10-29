@@ -34,7 +34,7 @@ public:
   class HSAILSelectionDAGInfo : public TargetSelectionDAGInfo {
   public:
     explicit HSAILSelectionDAGInfo(const HSAILTargetMachine &TM)
-      : TargetSelectionDAGInfo(TM.getDataLayout()) {}
+      : TargetSelectionDAGInfo() {}
   };
 
 public:
@@ -65,6 +65,7 @@ public:
   bool addPassesToEmitFile(
     PassManagerBase &PM, raw_pwrite_stream &Out,
     CodeGenFileType FT, bool DisableVerify = true,
+    AnalysisID StartBefore = nullptr,
     AnalysisID StartAfter = nullptr,
     AnalysisID StopAfter = nullptr,
     MachineFunctionInitializer *MFInitializer = nullptr) override;

@@ -100,7 +100,7 @@ HSAILTargetMachine::HSAILTargetMachine(const Target &T, const Triple &TT,
 
 bool HSAILTargetMachine::addPassesToEmitFile(
     PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FT,
-    bool DisableVerify, AnalysisID StartAfter, AnalysisID StopAfter,
+    bool DisableVerify, AnalysisID StartBefore, AnalysisID StartAfter, AnalysisID StopAfter,
     MachineFunctionInitializer *MFInitializer) {
   HSAILFileType = FT; // FIXME: Remove this.
 

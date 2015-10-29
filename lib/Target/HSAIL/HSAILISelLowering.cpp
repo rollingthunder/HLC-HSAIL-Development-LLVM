@@ -51,7 +51,7 @@ HSAILTargetLowering::HSAILTargetLowering(HSAILTargetMachine &TM,
   setBooleanContents(ZeroOrNegativeOneBooleanContent);
 
   RegInfo = Subtarget->getRegisterInfo();
-  DL = getDataLayout();
+  DL = TM.getDataLayout();
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, &HSAIL::GPR32RegClass);
@@ -271,7 +271,7 @@ HSAILTargetLowering::HSAILTargetLowering(HSAILTargetMachine &TM,
 
 HSAILTargetLowering::~HSAILTargetLowering() {}
 
-EVT HSAILTargetLowering::getSetCCResultType(LLVMContext &Context,
+EVT HSAILTargetLowering::getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                                             EVT VT) const {
   return MVT::i1;
 }
@@ -444,16 +444,16 @@ HSAILTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 
   Type *type = funcType->getReturnType();
   if (!type->isVoidTy()) {
-    Mangler Mang(getDataLayout());
+    Mangler Mang;
 
     // FIXME: The ParamManager here is only used for making sure the built
     // string's name survives until code emission. We can't rely on the name
     // here being added because unreachable functions with return values may not
     // have return instructions.
     const char *SymName = PM.getParamName(
-        PM.addReturnParam(type, PM.mangleArg(&Mang, F->getName())));
+        PM.addReturnParam(type, PM.mangleArg(&Mang, F->getName(), *DL)));
 
-    MVT ArgPtrVT = getPointerTy(HSAILAS::ARG_ADDRESS);
+    MVT ArgPtrVT = getPointerTy(*DL, HSAILAS::ARG_ADDRESS);
     SDValue RetVariable = DAG.getTargetExternalSymbol(SymName, ArgPtrVT);
 
     AAMDNodes MD; // FIXME: What is this for?
@@ -493,7 +493,7 @@ SDValue HSAILTargetLowering::getArgLoad(SelectionDAG &DAG, SDLoc SL, EVT ArgVT,
     EltTy = Ty->getArrayElementType();
   EltTy = EltTy->getScalarType();
 
-  MVT PtrVT = getPointerTy(AddressSpace);
+  MVT PtrVT = getPointerTy(*DL, AddressSpace);
   PointerType *ArgPT = PointerType::get(EltTy, AddressSpace);
 
   // TODO_HSA: check if that works with packed structs, it can happen
@@ -567,7 +567,7 @@ SDValue HSAILTargetLowering::getArgStore(
   if (Ty->isArrayTy())
     EltTy = Ty->getArrayElementType();
   EltTy = EltTy->getScalarType();
-  MVT PtrVT = getPointerTy(AddressSpace);
+  MVT PtrVT = getPointerTy(*DL, AddressSpace);
   PointerType *ArgPT = PointerType::get(EltTy, AddressSpace);
   // TODO_HSA: check if that works with packed structs, it can happen
   //           we would need to inhibit alignment calculation in that case.
@@ -713,16 +713,16 @@ SDValue HSAILTargetLowering::LowerFormalArguments(
   HSAILParamManager &PM = FuncInfo->getParamManager();
   unsigned AS = HSAIL::isKernelFunc(MF.getFunction()) ? HSAILAS::KERNARG_ADDRESS
                                                       : HSAILAS::ARG_ADDRESS;
-  MVT PtrTy = getPointerTy(AS);
+  MVT PtrTy = getPointerTy(*DL, AS);
 
-  Mangler Mang(DL);
+  Mangler Mang;
 
   // Map function param types to Ins.
   Function::const_arg_iterator AI = MF.getFunction()->arg_begin();
   Function::const_arg_iterator AE = MF.getFunction()->arg_end();
   for (unsigned ArgNo = 0; AI != AE; ++AI) {
     unsigned Param = PM.addArgumentParam(
-        AS, *AI, HSAILParamManager::mangleArg(&Mang, AI->getName()));
+        AS, *AI, HSAILParamManager::mangleArg(&Mang, AI->getName(), *DL));
     const char *ParamName = PM.getParamName(Param);
     std::string md = (AI->getName() + ":" + ParamName + " ").str();
     FuncInfo->addMetadata("argmap:" + md, true);
@@ -763,7 +763,7 @@ SDValue HSAILTargetLowering::LowerCall(CallLoweringInfo &CLI,
   MachineFunction &MF = DAG.getMachineFunction();
   HSAILParamManager &PM =
       MF.getInfo<HSAILMachineFunctionInfo>()->getParamManager();
-  Mangler Mang(DL);
+  Mangler Mang;
 
   Chain = DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(0, dl, true), dl);
   SDValue InFlag = Chain.getValue(1);
@@ -779,7 +779,7 @@ SDValue HSAILTargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     unsigned AS = G->getAddressSpace();
     const GlobalValue *GV = G->getGlobal();
-    Callee = DAG.getTargetGlobalAddress(GV, dl, getPointerTy(AS));
+    Callee = DAG.getTargetGlobalAddress(GV, dl, getPointerTy(*DL, AS));
 
     if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
       calleeFunc = cast<Function>(GA->getAliasee());
@@ -801,10 +801,10 @@ SDValue HSAILTargetLowering::LowerCall(CallLoweringInfo &CLI,
   Type *retType = funcType->getReturnType();
   SDValue RetValue;
   if (!retType->isVoidTy()) {
-    MVT PtrVT = getPointerTy(HSAILAS::ARG_ADDRESS);
+    MVT PtrVT = getPointerTy(*DL, HSAILAS::ARG_ADDRESS);
     RetValue = DAG.getTargetExternalSymbol(
         PM.getParamName(
-            PM.addCallRetParam(retType, PM.mangleArg(&Mang, FuncName))),
+            PM.addCallRetParam(retType, PM.mangleArg(&Mang, FuncName, *DL))),
         PtrVT);
 
     unsigned NElts;
@@ -846,7 +846,7 @@ SDValue HSAILTargetLowering::LowerCall(CallLoweringInfo &CLI,
     ae = calleeFunc->arg_end();
   }
 
-  MVT ArgPtrVT = getPointerTy(HSAILAS::ARG_ADDRESS);
+  MVT ArgPtrVT = getPointerTy(*DL, HSAILAS::ARG_ADDRESS);
 
   MDBuilder MDB(*DAG.getContext());
   for (FunctionType::param_iterator pb = funcType->param_begin(),
@@ -856,7 +856,7 @@ SDValue HSAILTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
     std::string ParamName;
     if (calleeFunc && ai != ae) {
-      ParamName = PM.mangleArg(&Mang, ai->getName());
+      ParamName = PM.mangleArg(&Mang, ai->getName(), *DL);
     }
     if (ParamName.empty()) {
       ParamName = "__param_p";
@@ -1131,7 +1131,7 @@ SDValue HSAILTargetLowering::LowerLdKernargIntrinsic(SDValue Op,
   Type *Ty = Type::getIntNTy(*DAG.getContext(), VT.getSizeInBits());
   SDValue Addr = Op.getOperand(1);
   int64_t Offset = 0;
-  MVT PtrTy = getPointerTy(HSAILAS::KERNARG_ADDRESS);
+  MVT PtrTy = getPointerTy(*DL, HSAILAS::KERNARG_ADDRESS);
   AAMDNodes ArgMD; // FIXME: What is this for?
   if (ConstantSDNode *CAddr = dyn_cast<ConstantSDNode>(Addr)) {
     Offset = CAddr->getSExtValue();
@@ -1563,7 +1563,7 @@ HSAILTargetLowering::lowerSamplerInitializerOperand(SDValue Op,
   // FIXME: Get correct address space pointer type.
   SDValue Ops[] = {
     DAG.getTargetConstant(samplerHandleIndex, SL, MVT::i32),
-    DAG.getRegister(HSAIL::NoRegister, getPointerTy()),
+    DAG.getRegister(HSAIL::NoRegister, getPointerTy(*DL)),
     DAG.getTargetConstant(0, SL, MVT::i32),
     DAG.getTargetConstant(BRIG_TYPE_SAMP, SL, MVT::i32),
     DAG.getTargetConstant(BRIG_WIDTH_ALL, SL, MVT::i32),
@@ -1855,7 +1855,7 @@ SDValue HSAILTargetLowering::LowerDEBUGTRAP(SDValue Op, SelectionDAG &DAG) const
     return LowerTRAP(Op, DAG);
 }
 //===--------------------------------------------------------------------===//
-bool HSAILTargetLowering::isLegalAddressingMode(const AddrMode &AM,
+bool HSAILTargetLowering::isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM,
                                                 Type *Ty,
                                                 unsigned AddrSpace) const {
   if (Subtarget->isGCN()) {
@@ -1865,7 +1865,7 @@ bool HSAILTargetLowering::isLegalAddressingMode(const AddrMode &AM,
       return false;
   }
 
-  return TargetLowering::isLegalAddressingMode(AM, Ty, AddrSpace);
+  return TargetLowering::isLegalAddressingMode(DL, AM, Ty, AddrSpace);
 }
 
 bool HSAILTargetLowering::isZExtFree(Type *Ty1, Type *Ty2) const {
@@ -1890,7 +1890,7 @@ bool HSAILTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
   return true;
 }
 
-MVT HSAILTargetLowering::getScalarShiftAmountTy(EVT LHSTy) const {
+MVT HSAILTargetLowering::getScalarShiftAmountTy(const DataLayout &DL, EVT LHSTy) const {
   // Shift amounts in registers must be in S registers
   // Restrict shift amount to 32-bits.
   return MVT::i32;

@@ -43,7 +43,7 @@ public:
                                const HSAILSubtarget &ST);
   virtual ~HSAILTargetLowering();
 
-  EVT getSetCCResultType(LLVMContext &Context, EVT VT) const override;
+  EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context, EVT VT) const override;
 
   const TargetRegisterClass *getRepRegClassFor(MVT VT) const override;
 
@@ -164,7 +164,7 @@ public:
   //===--------------------------------------------------------------------===//
   // Instruction Emitting Hooks
   //
-  bool isLegalAddressingMode(const AddrMode &AM, Type *Ty,
+  bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
                              unsigned AddrSpace) const override;
 
   bool isZExtFree(Type *Ty1, Type *Ty2) const override;
@@ -178,7 +178,7 @@ public:
 
   bool isLegalICmpImmediate(int64_t Imm) const override;
 
-  MVT getScalarShiftAmountTy(EVT LHSTy) const override;
+  MVT getScalarShiftAmountTy(const DataLayout &DL, EVT LHSTy) const override;
 
   bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override;
 
